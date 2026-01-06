@@ -9,53 +9,41 @@ from pyrogram.errors import FloodWait, RPCError
 
 from config import API_ID, API_HASH
 
-# ============================================================
+# =========================
 # SETTINGS
-# ============================================================
-DEBUG = True  # True biar kelihatan log di console
+# =========================
+DEBUG = True
 
 # mode: "contains" | "exact"
 CHATREP_RULES = [
     ("ubot", "bot gacor di sini @asepvoid", "contains"),
-    # contoh:
-    # ("halo", "yo", "exact"),
-    # ("ubot", "{mention} bot gacor di sini @asepvoid", "contains"),
 ]
 
 DEFAULT_MATCH_MODE = "contains"
 
-# ChatRep hanya aktif di grup yang kamu ON kan
+# ON/OFF per grup
 ACTIVE_CHAT_IDS: Set[int] = set()
 
-# Anti spam per (chat_id, trigger)
-COOLDOWN_SECONDS = 8
+COOLDOWN_SECONDS = 6
 LAST_SENT: Dict[Tuple[int, str], float] = {}
 
-# Delay biar keliatan manusia (set (0,0) untuk off)
-HUMAN_DELAY_RANGE = (0.4, 1.2)
-
-# Reply ke pesan pemicu
+HUMAN_DELAY_RANGE = (0.2, 0.8)  # set (0,0) untuk off
 REPLY_TO_TRIGGER_MESSAGE = True
 
-# ============================================================
-# CLIENT (PAKAI SESSION FILE, BUKAN SESSION_STRING)
-# Ini penting biar gak nyangkut ke session lama
-# File session akan jadi: chatrep_userbot.session
-# ============================================================
-app = Client(
-    "chatrep_userbot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-)
+app = Client("chatrep_userbot", api_id=API_ID, api_hash=API_HASH)
 
-# ============================================================
+# =========================
 # HELPERS
-# ============================================================
+# =========================
+def dlog(msg: str):
+    if DEBUG:
+        print(msg)
+
+def is_group(chat) -> bool:
+    return bool(chat) and chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
 def normalize(text: str) -> str:
     return (text or "").strip().lower()
-
-def is_group(message) -> bool:
-    return bool(message.chat) and message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
 def match(mode: str, trigger: str, incoming: str) -> bool:
     mode = (mode or DEFAULT_MATCH_MODE).lower()
@@ -65,31 +53,7 @@ def match(mode: str, trigger: str, incoming: str) -> bool:
         return False
     if mode == "exact":
         return inc == t
-    return t in inc  # contains
-
-def apply_placeholders(template: str, message) -> str:
-    """
-    Placeholder:
-    {first}    -> first name
-    {username} -> @username
-    {mention}  -> mention user
-    {chat}     -> judul grup
-    {text}     -> teks masuk
-    """
-    u = message.from_user
-    first = (u.first_name if u else "") or ""
-    username = (u.username if u else "") or ""
-    mention = (u.mention(first) if u else "") or ""
-    chat_title = (message.chat.title if message.chat else "") or ""
-    text = message.text or ""
-
-    out = template or ""
-    out = out.replace("{first}", first)
-    out = out.replace("{username}", f"@{username}" if username else "")
-    out = out.replace("{mention}", mention)
-    out = out.replace("{chat}", chat_title)
-    out = out.replace("{text}", text)
-    return out
+    return t in inc
 
 async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
     try:
@@ -98,88 +62,82 @@ async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | Non
         await asyncio.sleep(int(e.value) + 1)
         await client.send_message(chat_id, text, reply_to_message_id=reply_to)
     except RPCError as e:
-        if DEBUG:
-            print(f"[SEND ERROR] chat={chat_id} err={e}")
+        dlog(f"[SEND ERROR] chat={chat_id} err={e}")
         return
 
-def dlog(msg: str):
-    if DEBUG:
-        print(msg)
+# =========================
+# DEBUG: log semua pesan grup (buat ngetes update masuk)
+# =========================
+@app.on_message(filters.group)
+async def _log_all_group_messages(_, m):
+    # Ini sengaja: kita ingin tahu bot nerima update atau tidak.
+    txt = (m.text or m.caption or "")
+    dlog(f"[DBG] got group msg chat={m.chat.id} from_self={bool(m.outgoing)} text={txt[:60]!r}")
 
-# ============================================================
-# COMMANDS (HANYA KAMU) - regex biar robust
-# ============================================================
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]on(\s|$)"))
-async def cmd_on(client: Client, message):
-    cid = message.chat.id
-    ACTIVE_CHAT_IDS.add(cid)
-    dlog(f"[ON] chat_id={cid} title={message.chat.title}")
-    await message.reply_text("ChatRep ON di grup ini.")
+# =========================
+# COMMANDS (PAKAI filters.outgoing, bukan filters.me)
+# =========================
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping(\s|$)"))
+async def cmd_ping(_, m):
+    await m.reply_text("pong")
 
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]off(\s|$)"))
-async def cmd_off(client: Client, message):
-    cid = message.chat.id
-    ACTIVE_CHAT_IDS.discard(cid)
-    dlog(f"[OFF] chat_id={cid} title={message.chat.title}")
-    await message.reply_text("ChatRep OFF di grup ini.")
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]id(\s|$)"))
+async def cmd_id(_, m):
+    await m.reply_text(f"chat_id: `{m.chat.id}`", quote=True)
 
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]status(\s|$)"))
-async def cmd_status(client: Client, message):
-    cid = message.chat.id
-    status = "ON" if cid in ACTIVE_CHAT_IDS else "OFF"
-    await message.reply_text(f"Status ChatRep grup ini: {status}")
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]on(\s|$)"))
+async def cmd_on(_, m):
+    ACTIVE_CHAT_IDS.add(m.chat.id)
+    dlog(f"[ON] chat={m.chat.id} title={m.chat.title}")
+    await m.reply_text("ChatRep ON di grup ini.")
 
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]id(\s|$)"))
-async def cmd_id(client: Client, message):
-    await message.reply_text(f"chat_id: `{message.chat.id}`", quote=True)
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off(\s|$)"))
+async def cmd_off(_, m):
+    ACTIVE_CHAT_IDS.discard(m.chat.id)
+    dlog(f"[OFF] chat={m.chat.id} title={m.chat.title}")
+    await m.reply_text("ChatRep OFF di grup ini.")
 
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]menu(\s|$)"))
-async def cmd_menu(client: Client, message):
-    cid = message.chat.id
-    status = "ON" if cid in ACTIVE_CHAT_IDS else "OFF"
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
+async def cmd_status(_, m):
+    status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
+    await m.reply_text(f"Status ChatRep grup ini: {status}")
 
-    lines = []
-    for trig, resp, mode in CHATREP_RULES:
-        lines.append(f"• [{mode}] {trig} -> {resp}")
-
-    txt = (
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu(\s|$)"))
+async def cmd_menu(_, m):
+    status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
+    rules = "\n".join([f"• [{r[2]}] {r[0]} -> {r[1]}" for r in CHATREP_RULES]) or "- (kosong)"
+    await m.reply_text(
         "CHATREP USERBOT\n\n"
         f"Status grup ini : {status}\n"
-        f"Cooldown        : {COOLDOWN_SECONDS}s\n"
-        f"Reply mode      : {'reply' if REPLY_TO_TRIGGER_MESSAGE else 'send'}\n\n"
+        f"Cooldown        : {COOLDOWN_SECONDS}s\n\n"
         "Commands:\n"
-        "• .on / /on\n"
-        "• .off / /off\n"
-        "• .status\n"
+        "• .ping\n"
         "• .id\n"
+        "• .on\n"
+        "• .off\n"
+        "• .status\n"
         "• .menu\n\n"
-        "Rules:\n"
-        + ("\n".join(lines) if lines else "- (kosong)")
+        f"Rules:\n{rules}"
     )
-    await message.reply_text(txt)
 
-# ============================================================
-# AUTO REPLY (HANYA DI GRUP YANG SUDAH DI-ON)
-# ============================================================
-@app.on_message(filters.group & ~filters.me & filters.text)
-async def chatrep_handler(client: Client, message):
-    if not is_group(message):
+# =========================
+# AUTO REPLY (untuk pesan orang lain)
+# =========================
+@app.on_message(filters.group & filters.text & ~filters.outgoing)
+async def chatrep_handler(client: Client, m):
+    if not is_group(m.chat):
         return
 
-    chat_id = message.chat.id
-
-    # kunci utama: grup harus ON
+    chat_id = m.chat.id
     if chat_id not in ACTIVE_CHAT_IDS:
         dlog(f"[SKIP] chat={chat_id} belum ON")
         return
 
-    incoming = message.text or ""
+    incoming = m.text or ""
     if not incoming.strip():
         return
 
-    u = message.from_user
-    who = f"{u.first_name} (@{u.username})" if u else "Unknown"
-    dlog(f"[IN] chat={chat_id} from={who}: {incoming[:100]}")
+    dlog(f"[IN] chat={chat_id} text={incoming[:80]!r}")
 
     for trigger, response, mode in CHATREP_RULES:
         if not match(mode, trigger, incoming):
@@ -187,7 +145,6 @@ async def chatrep_handler(client: Client, message):
 
         trig_key = normalize(trigger)
 
-        # cooldown
         now = time.time()
         last = LAST_SENT.get((chat_id, trig_key), 0.0)
         if now - last < COOLDOWN_SECONDS:
@@ -195,40 +152,24 @@ async def chatrep_handler(client: Client, message):
             return
         LAST_SENT[(chat_id, trig_key)] = now
 
-        # human delay
         d0, d1 = HUMAN_DELAY_RANGE
         if d1 > 0:
             await asyncio.sleep(random.uniform(d0, d1))
 
-        out = apply_placeholders(response, message)
-        reply_to = message.id if REPLY_TO_TRIGGER_MESSAGE else None
-
+        reply_to = m.id if REPLY_TO_TRIGGER_MESSAGE else None
         dlog(f"[MATCH] chat={chat_id} trig={trig_key} -> send")
-        await safe_send(client, chat_id, out, reply_to=reply_to)
+        await safe_send(client, chat_id, response, reply_to=reply_to)
         return
 
-# ============================================================
-# MAIN (shutdown rapi)
-# ============================================================
+# =========================
+# MAIN
+# =========================
 async def main():
     await app.start()
     me = await app.get_me()
-
-    # indikator account deleted
-    is_deleted = getattr(me, "is_deleted", None)
-    print(f"ChatRep userbot running as: {me.first_name} (@{me.username}) | is_deleted={is_deleted}")
-    print("Note: Semua grup OFF dulu. Ketik .on di grup yang mau diaktifin.")
-
-    stop_event = asyncio.Event()
-    try:
-        await stop_event.wait()
-    except asyncio.CancelledError:
-        pass
-    finally:
-        try:
-            await app.stop()
-        except Exception as e:
-            print(f"Stop warning: {e}")
+    print(f"RUNNING AS: {me.first_name} (@{me.username}) | is_deleted={getattr(me, 'is_deleted', None)}")
+    print("Test dulu: ketik .ping di grup. Kalau dibalas 'pong', command sudah beres.")
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     try:
