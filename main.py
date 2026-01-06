@@ -56,12 +56,12 @@ def match(mode: str, trigger: str, incoming: str) -> bool:
     return t in inc
 
 
-def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
+async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
     try:
-        client.send_message(chat_id, text, reply_to_message_id=reply_to)
+        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
     except FloodWait as e:
-        time.sleep(int(e.value) + 1)
-        client.send_message(chat_id, text, reply_to_message_id=reply_to)
+        await time.sleep(int(e.value) + 1)
+        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
     except RPCError as e:
         dlog(f"[SEND ERROR] chat={chat_id} err={e}")
         return
@@ -71,44 +71,44 @@ def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
 # COMMANDS (OUTGOING)
 # =========================
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping(\s|$)"))
-def cmd_ping(_, m):
+async def cmd_ping(_, m):
     dlog("[CMD] ping")
-    m.reply_text("pong")
+    await m.reply_text("pong")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]id(\s|$)"))
-def cmd_id(_, m):
+async def cmd_id(_, m):
     dlog("[CMD] id")
-    m.reply_text(f"chat_id: `{m.chat.id}`", quote=True)
+    await m.reply_text(f"chat_id: `{m.chat.id}`", quote=True)
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]on(\s|$)"))
-def cmd_on(_, m):
+async def cmd_on(_, m):
     ACTIVE_CHAT_IDS.add(m.chat.id)
     dlog(f"[CMD] ON chat={m.chat.id} title={m.chat.title}")
-    m.reply_text("ChatRep ON di grup ini.")
+    await m.reply_text("ChatRep ON di grup ini.")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off(\s|$)"))
-def cmd_off(_, m):
+async def cmd_off(_, m):
     ACTIVE_CHAT_IDS.discard(m.chat.id)
     dlog(f"[CMD] OFF chat={m.chat.id} title={m.chat.title}")
-    m.reply_text("ChatRep OFF di grup ini.")
+    await m.reply_text("ChatRep OFF di grup ini.")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
-def cmd_status(_, m):
+async def cmd_status(_, m):
     status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
     dlog(f"[CMD] status -> {status}")
-    m.reply_text(f"Status ChatRep grup ini: {status}")
+    await m.reply_text(f"Status ChatRep grup ini: {status}")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu(\s|$)"))
-def cmd_menu(_, m):
+async def cmd_menu(_, m):
     status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
     rules = "\n".join([f"• [{r[2]}] {r[0]} -> {r[1]}" for r in CHATREP_RULES]) or "- (kosong)"
     dlog("[CMD] menu")
-    m.reply_text(
+    await m.reply_text(
         "CHATREP USERBOT\n\n"
         f"Status grup ini : {status}\n"
         f"Cooldown        : {COOLDOWN_SECONDS}s\n\n"
@@ -127,7 +127,7 @@ def cmd_menu(_, m):
 # AUTO REPLY (PESAN ORANG LAIN)
 # =========================
 @app.on_message(filters.group & filters.text & ~filters.outgoing)
-def chatrep_handler(client: Client, m):
+async def chatrep_handler(client: Client, m):
     if not is_group(m):
         return
 
@@ -155,24 +155,25 @@ def chatrep_handler(client: Client, m):
 
         d0, d1 = HUMAN_DELAY_RANGE
         if d1 > 0:
-            time.sleep(random.uniform(d0, d1))
+            await asyncio.sleep(random.uniform(d0, d1))
 
         reply_to = m.id if REPLY_TO_TRIGGER_MESSAGE else None
         dlog(f"[MATCH] chat={chat_id} trig={trig_key} -> send")
-        safe_send(client, chat_id, response, reply_to=reply_to)
+        await safe_send(client, chat_id, response, reply_to=reply_to)
         return
 
 
 # =========================
-# MAIN
+# MAIN (COROUTINE)
 # =========================
-def main():
-    me = app.get_me()
+async def main():
+    await app.start()
+    me = await app.get_me()
     print(f"RUNNING AS: {me.first_name} (@{me.username}) | is_deleted={getattr(me, 'is_deleted', None)}")
     print("Test: ketik .ping di grup. Kalau dibalas pong, command sudah hidup.")
-    idle()
+    await idle()
+    await app.stop()
 
 
 if __name__ == "__main__":
-    # app.run akan handle start/stop secara benar (tanpa double start)
     app.run(main)
