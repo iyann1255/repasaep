@@ -1,8 +1,9 @@
-import time
+import asyncio
 import random
+import time
 from typing import Dict, Tuple, Set
 
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait, RPCError
 
@@ -60,7 +61,7 @@ async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | Non
     try:
         await client.send_message(chat_id, text, reply_to_message_id=reply_to)
     except FloodWait as e:
-        await time.sleep(int(e.value) + 1)
+        await asyncio.sleep(int(e.value) + 1)
         await client.send_message(chat_id, text, reply_to_message_id=reply_to)
     except RPCError as e:
         dlog(f"[SEND ERROR] chat={chat_id} err={e}")
@@ -163,17 +164,7 @@ async def chatrep_handler(client: Client, m):
         return
 
 
-# =========================
-# MAIN (COROUTINE)
-# =========================
-async def main():
-    await app.start()
-    me = await app.get_me()
-    print(f"RUNNING AS: {me.first_name} (@{me.username}) | is_deleted={getattr(me, 'is_deleted', None)}")
-    print("Test: ketik .ping di grup. Kalau dibalas pong, command sudah hidup.")
-    await idle()
-    await app.stop()
-
-
 if __name__ == "__main__":
-    app.run(main)
+    print("Running... (login sekali kalau diminta)")
+    print("Test di grup: .ping -> harus dibalas pong")
+    app.run()  # ✅ INI YANG BENAR: TANPA ARGUMEN
