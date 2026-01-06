@@ -8,7 +8,6 @@ from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait, RPCError
 
 from motor.motor_asyncio import AsyncIOMotorClient
-
 from config import API_ID, API_HASH, MONGO_URL, MONGO_DB
 
 # =========================
@@ -16,21 +15,19 @@ from config import API_ID, API_HASH, MONGO_URL, MONGO_DB
 # =========================
 DEBUG = True
 
-# Trigger rules: (trigger, response, mode)
-# mode: "contains" | "exact"
 CHATREP_RULES = [
     ("ubot", "bot gacor di sini @asepvoid", "contains"),
 ]
 
 COOLDOWN_SECONDS = 6
-HUMAN_DELAY_RANGE = (0.2, 0.8)  # (0,0) untuk off
+HUMAN_DELAY_RANGE = (0.2, 0.8)
 REPLY_TO_TRIGGER_MESSAGE = True
 
-# cooldown state (in-memory)
 LAST_SENT: Dict[Tuple[int, str], float] = {}
+ACTIVE_CHAT_IDS: Set[int] = set()
 
 # =========================
-# PYROGRAM APP
+# PYROGRAM CLIENT
 # =========================
 app = Client("chatrep_userbot", api_id=API_ID, api_hash=API_HASH)
 
@@ -38,36 +35,10 @@ def dlog(msg: str):
     if DEBUG:
         print(msg)
 
-def normalize(text: str) -> str:
-    return (text or "").strip().lower()
-
-def is_group(message) -> bool:
-    return bool(message.chat) and message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
-
-def match(mode: str, trigger: str, incoming: str) -> bool:
-    mode = (mode or "contains").lower()
-    t = normalize(trigger)
-    inc = normalize(incoming)
-    if not t or not inc:
-        return False
-    if mode == "exact":
-        return inc == t
-    return t in inc
-
-async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
-    try:
-        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
-    except FloodWait as e:
-        await asyncio.sleep(int(e.value) + 1)
-        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
-    except RPCError as e:
-        dlog(f"[SEND ERROR] chat={chat_id} err={e}")
-        return
-
-# ============================================================
-# PATCH (OPSI 1): Skip update yang error "Peer id invalid"
-# ============================================================
-from pyrogram.client import Client as PyroClient  # noqa: E402
+# =========================
+# PATCH: skip Peer id invalid
+# =========================
+from pyrogram.client import Client as PyroClient
 
 _original_handle_updates = PyroClient.handle_updates
 
@@ -89,139 +60,119 @@ mongo = AsyncIOMotorClient(MONGO_URL)
 db = mongo[MONGO_DB]
 col = db["chatrep_settings"]
 
-# Cache ON groups in memory (loaded from DB on start)
-ACTIVE_CHAT_IDS: Set[int] = set()
-
-async def db_load_active_chats():
+async def load_active_chats():
     ACTIVE_CHAT_IDS.clear()
-    async for doc in col.find({"enabled": True}, {"_id": 0, "chat_id": 1}):
+    async for doc in col.find({"enabled": True}):
         ACTIVE_CHAT_IDS.add(int(doc["chat_id"]))
     dlog(f"[DB] Loaded active chats: {len(ACTIVE_CHAT_IDS)}")
 
-async def db_set_enabled(chat_id: int, enabled: bool):
+async def set_enabled(chat_id: int, enabled: bool):
     await col.update_one(
-        {"chat_id": int(chat_id)},
-        {"$set": {"chat_id": int(chat_id), "enabled": bool(enabled), "updated_at": int(time.time())}},
-        upsert=True,
+        {"chat_id": chat_id},
+        {"$set": {"enabled": enabled, "updated_at": int(time.time())}},
+        upsert=True
     )
     if enabled:
-        ACTIVE_CHAT_IDS.add(int(chat_id))
+        ACTIVE_CHAT_IDS.add(chat_id)
     else:
-        ACTIVE_CHAT_IDS.discard(int(chat_id))
+        ACTIVE_CHAT_IDS.discard(chat_id)
 
-async def db_is_enabled(chat_id: int) -> bool:
-    # use memory cache (fast)
-    return int(chat_id) in ACTIVE_CHAT_IDS
+def is_enabled(chat_id: int) -> bool:
+    return chat_id in ACTIVE_CHAT_IDS
 
 # =========================
-# COMMANDS (OUTGOING)
+# HELPERS
 # =========================
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping(\s|$)"))
-async def cmd_ping(_, m):
-    dlog("[CMD] ping")
+def normalize(text: str) -> str:
+    return (text or "").lower().strip()
+
+def is_group(m) -> bool:
+    return m.chat and m.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
+
+def match(mode: str, trigger: str, incoming: str) -> bool:
+    t = normalize(trigger)
+    i = normalize(incoming)
+    return i == t if mode == "exact" else t in i
+
+async def safe_send(client, chat_id, text, reply_to):
+    try:
+        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
+    except FloodWait as e:
+        await asyncio.sleep(int(e.value) + 1)
+        await client.send_message(chat_id, text, reply_to_message_id=reply_to)
+    except RPCError as e:
+        dlog(f"[SEND ERROR] {e}")
+
+# =========================
+# COMMANDS
+# =========================
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping"))
+async def ping(_, m):
     await m.reply_text("pong")
 
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]id(\s|$)"))
-async def cmd_id(_, m):
-    dlog("[CMD] id")
-    await m.reply_text(f"chat_id: `{m.chat.id}`", quote=True)
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]on"))
+async def on(_, m):
+    await set_enabled(m.chat.id, True)
+    await m.reply_text("ChatRep ON (tersimpan)")
 
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]on(\s|$)"))
-async def cmd_on(_, m):
-    await db_set_enabled(m.chat.id, True)
-    dlog(f"[CMD] ON chat={m.chat.id} title={m.chat.title}")
-    await m.reply_text("ChatRep ON di grup ini (tersimpan).")
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off"))
+async def off(_, m):
+    await set_enabled(m.chat.id, False)
+    await m.reply_text("ChatRep OFF (tersimpan)")
 
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off(\s|$)"))
-async def cmd_off(_, m):
-    await db_set_enabled(m.chat.id, False)
-    dlog(f"[CMD] OFF chat={m.chat.id} title={m.chat.title}")
-    await m.reply_text("ChatRep OFF di grup ini (tersimpan).")
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status"))
+async def status(_, m):
+    await m.reply_text("ON" if is_enabled(m.chat.id) else "OFF")
 
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
-async def cmd_status(_, m):
-    status = "ON" if await db_is_enabled(m.chat.id) else "OFF"
-    dlog(f"[CMD] status -> {status}")
-    await m.reply_text(f"Status ChatRep grup ini: {status}")
-
-@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu(\s|$)"))
-async def cmd_menu(_, m):
-    status = "ON" if await db_is_enabled(m.chat.id) else "OFF"
-    rules = "\n".join([f"• [{r[2]}] {r[0]} -> {r[1]}" for r in CHATREP_RULES]) or "- (kosong)"
-    dlog("[CMD] menu")
+@app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu"))
+async def menu(_, m):
+    rules = "\n".join([f"- {r[0]} → {r[1]}" for r in CHATREP_RULES])
     await m.reply_text(
-        "CHATREP USERBOT (MongoDB)\n\n"
-        f"Status grup ini : {status}\n"
-        f"Cooldown        : {COOLDOWN_SECONDS}s\n\n"
-        "Commands:\n"
-        "• .ping\n"
-        "• .id\n"
-        "• .on\n"
-        "• .off\n"
-        "• .status\n"
-        "• .menu\n\n"
-        f"Rules:\n{rules}\n\n"
-        f"Active cached groups: {len(ACTIVE_CHAT_IDS)}"
+        f"CHATREP (MongoDB)\n\n"
+        f"Status: {'ON' if is_enabled(m.chat.id) else 'OFF'}\n\n"
+        f"Rules:\n{rules}"
     )
 
 # =========================
-# AUTO REPLY (PESAN ORANG LAIN)
+# AUTO REPLY
 # =========================
 @app.on_message(filters.group & filters.text & ~filters.outgoing)
-async def chatrep_handler(client: Client, m):
+async def chatrep(client, m):
     if not is_group(m):
         return
-
-    chat_id = m.chat.id
-    if not await db_is_enabled(chat_id):
+    if not is_enabled(m.chat.id):
         return
 
-    incoming = m.text or ""
-    if not incoming.strip():
-        return
-
-    dlog(f"[IN] chat={chat_id} text={incoming[:80]!r}")
-
+    text = m.text or ""
     for trigger, response, mode in CHATREP_RULES:
-        if not match(mode, trigger, incoming):
-            continue
+        if match(mode, trigger, text):
+            key = (m.chat.id, trigger)
+            now = time.time()
+            if now - LAST_SENT.get(key, 0) < COOLDOWN_SECONDS:
+                return
+            LAST_SENT[key] = now
 
-        trig_key = normalize(trigger)
-
-        # cooldown
-        now = time.time()
-        last = LAST_SENT.get((chat_id, trig_key), 0.0)
-        if now - last < COOLDOWN_SECONDS:
-            dlog(f"[COOLDOWN] chat={chat_id} trig={trig_key}")
+            await asyncio.sleep(random.uniform(*HUMAN_DELAY_RANGE))
+            await safe_send(client, m.chat.id, response, m.id if REPLY_TO_TRIGGER_MESSAGE else None)
             return
-        LAST_SENT[(chat_id, trig_key)] = now
 
-        # delay
-        d0, d1 = HUMAN_DELAY_RANGE
-        if d1 > 0:
-            await asyncio.sleep(random.uniform(d0, d1))
-
-        reply_to = m.id if REPLY_TO_TRIGGER_MESSAGE else None
-        dlog(f"[MATCH] chat={chat_id} trig={trig_key} -> send")
-        await safe_send(client, chat_id, response, reply_to=reply_to)
-        return
+# =========================
+# STARTUP TASK
+# =========================
+async def startup():
+    await load_active_chats()
+    me = await app.get_me()
+    print(f"RUNNING AS: {me.first_name} (@{me.username})")
 
 # =========================
 # RUN
 # =========================
-async def _startup():
-    # Load enabled chats from DB once on startup
-    await db_load_active_chats()
-    me = await app.get_me()
-    print(f"RUNNING AS: {me.first_name} (@{me.username}) | is_deleted={getattr(me, 'is_deleted', None)}")
-    print("Test: .ping, lalu .on di grup target. Status tersimpan di MongoDB.")
-
 if __name__ == "__main__":
-    print("Running ChatRep userbot (MongoDB persistence)...")
-    # app.run() akan start client & loop
-    # kita inject startup via on_start callback-style: jalankan saat client sudah start
-    @app.on_start()
-    async def _on_start(client):
-        await _startup()
+    print("Starting ChatRep (MongoDB persistence)...")
 
-    app.run()
+    async def runner():
+        await app.start()
+        await startup()
+        await asyncio.Event().wait()
+
+    asyncio.run(runner())
