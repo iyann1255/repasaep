@@ -2,7 +2,7 @@ import time
 import random
 from typing import Dict, Tuple, Set
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait, RPCError
 
@@ -20,7 +20,7 @@ CHATREP_RULES = [
 ]
 
 COOLDOWN_SECONDS = 6
-HUMAN_DELAY_RANGE = (0.2, 0.8)  # (0,0) kalau mau off
+HUMAN_DELAY_RANGE = (0.2, 0.8)  # (0,0) untuk off
 REPLY_TO_TRIGGER_MESSAGE = True
 
 # ON/OFF per grup (bukan global)
@@ -41,7 +41,7 @@ def normalize(text: str) -> str:
     return (text or "").strip().lower()
 
 
-def is_group_chat(message) -> bool:
+def is_group(message) -> bool:
     return bool(message.chat) and message.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
 
@@ -71,44 +71,44 @@ def safe_send(client: Client, chat_id: int, text: str, reply_to: int | None):
 # COMMANDS (OUTGOING)
 # =========================
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping(\s|$)"))
-def cmd_ping(client: Client, message):
+def cmd_ping(_, m):
     dlog("[CMD] ping")
-    message.reply_text("pong")
+    m.reply_text("pong")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]id(\s|$)"))
-def cmd_id(client: Client, message):
+def cmd_id(_, m):
     dlog("[CMD] id")
-    message.reply_text(f"chat_id: `{message.chat.id}`", quote=True)
+    m.reply_text(f"chat_id: `{m.chat.id}`", quote=True)
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]on(\s|$)"))
-def cmd_on(client: Client, message):
-    ACTIVE_CHAT_IDS.add(message.chat.id)
-    dlog(f"[CMD] ON chat={message.chat.id} title={message.chat.title}")
-    message.reply_text("ChatRep ON di grup ini.")
+def cmd_on(_, m):
+    ACTIVE_CHAT_IDS.add(m.chat.id)
+    dlog(f"[CMD] ON chat={m.chat.id} title={m.chat.title}")
+    m.reply_text("ChatRep ON di grup ini.")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off(\s|$)"))
-def cmd_off(client: Client, message):
-    ACTIVE_CHAT_IDS.discard(message.chat.id)
-    dlog(f"[CMD] OFF chat={message.chat.id} title={message.chat.title}")
-    message.reply_text("ChatRep OFF di grup ini.")
+def cmd_off(_, m):
+    ACTIVE_CHAT_IDS.discard(m.chat.id)
+    dlog(f"[CMD] OFF chat={m.chat.id} title={m.chat.title}")
+    m.reply_text("ChatRep OFF di grup ini.")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
-def cmd_status(client: Client, message):
-    status = "ON" if message.chat.id in ACTIVE_CHAT_IDS else "OFF"
+def cmd_status(_, m):
+    status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
     dlog(f"[CMD] status -> {status}")
-    message.reply_text(f"Status ChatRep grup ini: {status}")
+    m.reply_text(f"Status ChatRep grup ini: {status}")
 
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu(\s|$)"))
-def cmd_menu(client: Client, message):
-    status = "ON" if message.chat.id in ACTIVE_CHAT_IDS else "OFF"
+def cmd_menu(_, m):
+    status = "ON" if m.chat.id in ACTIVE_CHAT_IDS else "OFF"
     rules = "\n".join([f"• [{r[2]}] {r[0]} -> {r[1]}" for r in CHATREP_RULES]) or "- (kosong)"
     dlog("[CMD] menu")
-    message.reply_text(
+    m.reply_text(
         "CHATREP USERBOT\n\n"
         f"Status grup ini : {status}\n"
         f"Cooldown        : {COOLDOWN_SECONDS}s\n\n"
@@ -127,17 +127,15 @@ def cmd_menu(client: Client, message):
 # AUTO REPLY (PESAN ORANG LAIN)
 # =========================
 @app.on_message(filters.group & filters.text & ~filters.outgoing)
-def chatrep_handler(client: Client, message):
-    if not is_group_chat(message):
+def chatrep_handler(client: Client, m):
+    if not is_group(m):
         return
 
-    chat_id = message.chat.id
-
-    # hanya grup yang di-ON
+    chat_id = m.chat.id
     if chat_id not in ACTIVE_CHAT_IDS:
         return
 
-    incoming = message.text or ""
+    incoming = m.text or ""
     if not incoming.strip():
         return
 
@@ -159,16 +157,22 @@ def chatrep_handler(client: Client, message):
         if d1 > 0:
             time.sleep(random.uniform(d0, d1))
 
-        reply_to = message.id if REPLY_TO_TRIGGER_MESSAGE else None
+        reply_to = m.id if REPLY_TO_TRIGGER_MESSAGE else None
         dlog(f"[MATCH] chat={chat_id} trig={trig_key} -> send")
         safe_send(client, chat_id, response, reply_to=reply_to)
         return
 
 
-if __name__ == "__main__":
-    me = None
-    app.start()
+# =========================
+# MAIN
+# =========================
+def main():
     me = app.get_me()
     print(f"RUNNING AS: {me.first_name} (@{me.username}) | is_deleted={getattr(me, 'is_deleted', None)}")
     print("Test: ketik .ping di grup. Kalau dibalas pong, command sudah hidup.")
-    app.run()
+    idle()
+
+
+if __name__ == "__main__":
+    # app.run akan handle start/stop secara benar (tanpa double start)
+    app.run(main)
