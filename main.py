@@ -1,7 +1,7 @@
 import asyncio
 import random
 import time
-from typing import Dict, Tuple, Set
+from typing import Dict, Tuple, Set, Union, List
 
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType
@@ -16,18 +16,199 @@ from config import API_ID, API_HASH, MONGO_URL, MONGO_DB
 DEBUG = True
 
 # Trigger rules: (trigger, response, mode) mode: contains | exact
+# response bisa str atau list[str]
 CHATREP_RULES = [
-    ("ubot", "bot gacor di sini @asepvoid", "contains"),
-    ("live", "dimana kak", "contains"),
-    ("dbyohh", "otwe kak", "contains"),
-    ("tmo", "dimana kak", "contains"),
-    ("call", "ayukk kak", "contains"),
-    ("anu", "anu apa nya kak", "contains"),
-    ("becek", "waduh becek", "contains"),
-    ("koll", "ayukk koll kak", "contains"),
-    ("vc", "yukk kak", "contains"),
-    ("pap", "kirim kak ke cpc", "contains"),
-    ("bot", "bukan bot, apalah", "contains"),
+    # ===== BOT / UBOT =====
+    ("ubot", ["bot gacor di sini @asepvoid", "ubot gacor ada", "gas ke @asepvoid", "ubot aman kak"], "contains"),
+    ("userbot", ["userbot gacor ada", "userbot aman", "userbot jalan kak", "userbot aktif"], "contains"),
+    ("bot", ["bukan bot", "apalah", "halu kak", "kok bot sih"], "contains"),
+    ("ai", ["halu dikit", "ai apaan", "ga ngerti ai", "kok ai"], "contains"),
+    ("robot", ["aku manusia", "bukan robot", "human kak", "ngaco lu"], "contains"),
+    ("auto", ["auto kak", "auto jalan", "auto gas", "auto aja"], "contains"),
+    ("script", ["spill script", "mana script", "kirim dulu"], "contains"),
+    ("kode", ["spill kode", "kirim kodenya", "mana kodenya"], "contains"),
+
+    # ===== SAPAAN =====
+    ("hai", ["yo", "hai juga", "halo", "apa kabar"], "exact"),
+    ("halo", ["yo", "halo juga", "apa kak", "iya"], "contains"),
+    ("hallo", ["yo", "halo", "hai juga", "apa"], "contains"),
+    ("p", ["yo", "apa", "kenapa"], "exact"),
+    ("oi", ["apa", "kenapa", "hah"], "contains"),
+    ("oy", ["kenapa", "apa kak", "hah"], "contains"),
+    ("woi", ["apa kak", "kenapa", "hah"], "contains"),
+    ("weh", ["apa", "kenapa", "hah"], "contains"),
+    ("eh", ["kenapa", "apa", "hah"], "contains"),
+    ("bro", ["iya bro", "siap bro", "gas bro", "apa bro"], "contains"),
+    ("kak", ["iya kak", "kenapa kak", "apa kak", "hm"], "contains"),
+    ("bang", ["siap bang", "kenapa bang", "apa bang", "hm"], "contains"),
+    ("gan", ["siap gan", "kenapa gan", "apa gan"], "contains"),
+    ("min", ["iya min", "kenapa min", "apa min"], "contains"),
+    ("bos", ["siap bos", "kenapa bos", "apa bos"], "contains"),
+    ("cuy", ["apa cuy", "kenapa cuy", "gas cuy"], "contains"),
+    ("cuk", ["apa cuk", "waduh", "wkwk"], "contains"),
+    ("sis", ["iya sis", "kenapa sis", "apa sis"], "contains"),
+    ("bestie", ["iya bestie", "kenapa", "gas"], "contains"),
+    ("beb", ["iya beb", "kenapa", "apa"], "contains"),
+    ("ayang", ["iya ayang", "kenapa", "apa"], "contains"),
+
+    # ===== KEHADIRAN =====
+    ("hadir", ["hadir kak", "siap hadir", "gas", "hadir min"], "contains"),
+    ("online", ["hadir", "online kak", "siap", "hadir kak"], "contains"),
+    ("off", ["gas dulu", "off dulu", "cabut dulu", "oke"], "contains"),
+    ("offline", ["oke", "gas dulu", "cabut", "hati-hati"], "contains"),
+    ("afk", ["oke kak", "siap", "ditunggu", "gas"], "contains"),
+    ("brb", ["ditunggu", "oke kak", "siap", "balik lagi"], "contains"),
+    ("balik", ["gas", "akhirnya", "oke", "hadir lagi"], "contains"),
+    ("gone", ["oke", "gas", "hati-hati"], "contains"),
+
+    # ===== LOKASI / GERAK =====
+    ("live", ["dimana kak", "lagi dimana", "lokasi mana", "shareloc dong"], "contains"),
+    ("tmo", ["dimana kak", "lokasi mana", "shareloc kak", "tmo mana"], "contains"),
+    ("otw", ["otw kak", "gas", "hati-hati", "siap jalan"], "contains"),
+    ("otwe", ["otw kak", "gas", "hati-hati"], "contains"),
+    ("dbyohh", ["otwe kak", "gas otw", "siap jalan"], "contains"),
+    ("nyampe", ["aman kak", "sip", "akhirnya", "gas"], "contains"),
+    ("sampe", ["sip", "aman", "gas", "akhirnya"], "contains"),
+    ("sampai", ["sip", "aman", "gas", "akhirnya"], "contains"),
+    ("datang", ["siap nyusul", "gas", "otw", "nyusul"], "contains"),
+    ("jalan", ["hati-hati", "aman kak", "gas", "jangan ngebut"], "contains"),
+    ("pulang", ["hati-hati", "aman kak", "gas", "jangan lupa kabar"], "contains"),
+    ("jemput", ["gas", "otw", "siap", "jemput dimana"], "contains"),
+    ("nunggu", ["ditunggu", "sabar", "oke", "bentar"], "contains"),
+    ("nungguin", ["ditunggu", "sabar", "oke"], "contains"),
+
+    # ===== AJAKAN =====
+    ("call", ["ayukk kak", "gas call", "kapan call", "join call"], "contains"),
+    ("vc", ["yukk kak", "gas vc", "masuk vc", "join vc"], "contains"),
+    ("koll", ["ayukk koll kak", "gas koll", "join koll", "koll gas"], "contains"),
+    ("join", ["ikut kak", "gas masuk", "mana link", "ayo"], "contains"),
+    ("masuk", ["gas kak", "ikut", "oke", "ayok"], "contains"),
+    ("nongkrong", ["gas kak", "ayuk", "dimana", "kuy"], "contains"),
+    ("mabar", ["gas mabar", "ayuk mabar", "main apa", "kuy"], "contains"),
+    ("push", ["gas push", "ayuk push", "rank berapa", "kuy"], "contains"),
+    ("duo", ["gas duo", "kuy", "ayok"], "contains"),
+    ("party", ["gas party", "kuy", "ikut"], "contains"),
+
+    # ===== PERTANYAAN UMUM =====
+    ("apa", ["iya kenapa", "kenapa kak", "apa kak", "hah", "apaan"], "contains"),
+    ("apaan", ["apaan", "hah", "kenapa", "apasi"], "contains"),
+    ("apasih", ["apaan", "hah", "kenapa", "apasi"], "contains"),
+    ("kenapa", ["gatau kak", "kenapa emang", "kurang tau", "kenapa tuh", "hah"], "contains"),
+    ("knp", ["gatau kak", "kenapa emang", "kenapa tuh"], "contains"),
+    ("kok", ["gatau kak", "kok bisa", "iya ya", "aneh ya", "lah iya"], "contains"),
+    ("siapa", ["gatau kak", "kurang tau", "siapa tuh", "siapa emang"], "contains"),
+    ("dimana", ["kurang tau", "dimana emang", "lokasi mana", "shareloc"], "contains"),
+    ("dmn", ["lokasi mana", "dimana emang", "shareloc"], "contains"),
+    ("kapan", ["nanti kak", "belum tau", "kayaknya nanti", "ntar"], "contains"),
+    ("kpn", ["nanti", "belum tau", "ntar"], "contains"),
+    ("gimana", ["jalanin aja", "pelan-pelan", "aman kak", "gitu aja", "yaudah"], "contains"),
+    ("gmn", ["pelan-pelan", "jalanin aja", "aman"], "contains"),
+    ("berapa", ["kurang tau", "ga ngitung", "sekitar segitu", "brp emang"], "contains"),
+    ("brp", ["kurang tau", "sekitar segitu", "ga ngitung"], "contains"),
+
+    # ===== REAKSI / EKSPRESI =====
+    ("anu", ["anu apanya kak", "anu yang mana", "hah anu"], "contains"),
+    ("becek", ["waduh becek", "becek bener", "hati-hati licin"], "contains"),
+    ("wkwk", ["wkwk", "ngakak", "ketawa mulu", "wkwkwk"], "contains"),
+    ("wk", ["wkwk", "ngakak", "wkwk"], "contains"),
+    ("haha", ["wkwk", "ngakak", "haha juga"], "contains"),
+    ("hehe", ["hehe", "wkwk", "asik"], "contains"),
+    ("lol", ["ngakak", "wkwk"], "contains"),
+    ("anjir", ["santai kak", "waduh", "parah", "anjir juga"], "contains"),
+    ("njir", ["waduh", "anjir", "wkwk"], "contains"),
+    ("jir", ["wkwk", "anjir", "waduh"], "contains"),
+    ("buset", ["waduh", "parah", "anjir"], "contains"),
+    ("gila", ["anjir", "parah", "gokil"], "contains"),
+    ("parah", ["waduh", "parah juga", "gila"], "contains"),
+    ("waduh", ["waduh", "lah iya", "santai"], "contains"),
+    ("yah", ["yah", "waduh", "lain kali"], "contains"),
+    ("lah", ["iya juga", "lah iya", "wkwk"], "contains"),
+    ("loh", ["iya ya", "loh iya", "wkwk"], "contains"),
+    ("anjay", ["mantap", "wkwk", "gas"], "contains"),
+
+    # ===== MEDIA =====
+    ("pap", ["kirim kak ke cpc", "spill kak", "gas pap", "mana pap"], "contains"),
+    ("foto", ["spill kak", "kirim kak", "gas", "mana foto"], "contains"),
+    ("video", ["spill kak", "kirim kak", "gas", "mana video"], "contains"),
+    ("vidio", ["spill kak", "kirim kak", "gas"], "contains"),
+    ("ss", ["spill kak", "mana ss", "kirim dulu", "mana ss nya"], "contains"),
+    ("rekam", ["gas kak", "spill", "kirim"], "contains"),
+    ("bukti", ["mana bukti", "spill", "kirim"], "contains"),
+    ("link", ["mana link", "kirim link", "spill link"], "contains"),
+
+    # ===== OPINI / STATUS =====
+    ("serius", ["serius dikit", "beneran?", "waduh", "fix?"], "contains"),
+    ("beneran", ["iya", "serius", "fix", "beneran nih"], "contains"),
+    ("bener", ["iya kak", "bener juga", "mantap"], "contains"),
+    ("salah", ["waduh", "yah", "skip"], "contains"),
+    ("aman", ["aman kak", "sip", "gas"], "contains"),
+    ("bahaya", ["waduh kak", "hati-hati", "ngeri"], "contains"),
+    ("ribet", ["santai kak", "pelan-pelan", "yaudah"], "contains"),
+    ("gampang", ["aman kak", "gas", "sip"], "contains"),
+
+    # ===== EMOSI =====
+    ("capek", ["istirahat kak", "rebahan dulu", "sabar"], "contains"),
+    ("lelah", ["rebahan dulu", "istirahat", "santai"], "contains"),
+    ("ngantuk", ["tidur kak", "met tidur", "istirahat"], "contains"),
+    ("lapar", ["makan dulu", "met makan", "gas makan"], "contains"),
+    ("haus", ["minum dulu", "gas minum", "jangan dehidrasi"], "contains"),
+    ("bete", ["santai kak", "tarik napas", "waduh"], "contains"),
+    ("stress", ["tarik napas", "santai dulu", "istirahat"], "contains"),
+    ("sedih", ["sabar kak", "jangan sedih", "pelan-pelan"], "contains"),
+    ("marah", ["santai kak", "tenang dulu", "waduh"], "contains"),
+    ("kesel", ["tarik napas", "santai", "waduh"], "contains"),
+    ("takut", ["santai kak", "aman", "tenang"], "contains"),
+    ("panik", ["tenang dulu", "aman", "pelan-pelan"], "contains"),
+    ("seneng", ["mantap kak", "gas", "asik"], "contains"),
+    ("bahagia", ["mantap kak", "gas", "asik"], "contains"),
+
+    # ===== WAKTU =====
+    ("sekarang", ["iya kak", "gas sekarang", "oke"], "contains"),
+    ("nanti", ["siap kak", "nanti ya", "oke"], "contains"),
+    ("besok", ["gas besok", "oke besok", "siap"], "contains"),
+    ("pagi", ["pagi kak", "gas", "mantap"], "contains"),
+    ("siang", ["siang kak", "gas", "oke"], "contains"),
+    ("sore", ["sore kak", "gas", "oke"], "contains"),
+    ("malam", ["gas malem", "malem ya", "oke"], "contains"),
+    ("malem", ["gas malem", "malem ya", "oke"], "contains"),
+
+    # ===== AKTIVITAS =====
+    ("kerja", ["semangat kak", "gas kerja", "jangan capek"], "contains"),
+    ("kuliah", ["semangat kak", "gas kuliah", "jangan bolos"], "contains"),
+    ("sekolah", ["semangat kak", "gas sekolah", "jangan telat"], "contains"),
+    ("belajar", ["gas belajar", "semangat", "pelan-pelan"], "contains"),
+    ("main", ["gas main", "main apa", "ayuk"], "contains"),
+    ("tidur", ["met tidur", "tidur kak", "istirahat"], "contains"),
+    ("mandi", ["gas mandi", "siap kak", "jangan kelamaan"], "contains"),
+    ("makan", ["met makan", "gas makan", "jangan lupa makan"], "contains"),
+
+    # ===== PENILAIAN =====
+    ("mantap", ["mantap", "gas", "sip"], "contains"),
+    ("keren", ["mantap kak", "gokil", "gas"], "contains"),
+    ("gokil", ["gokil", "mantap", "gas"], "contains"),
+    ("bagus", ["bagus", "mantap", "sip"], "contains"),
+    ("jelek", ["waduh", "yah", "skip"], "contains"),
+    ("lucu", ["wkwk", "ngakak", "asik"], "contains"),
+    ("aneh", ["iya juga", "aneh ya", "wkwk"], "contains"),
+
+    # ===== INTERNET SLANG =====
+    ("fix", ["iya fix", "fix bener", "fix sih"], "contains"),
+    ("real", ["real sih", "iya real", "bener"], "contains"),
+    ("relate", ["relate banget", "iya relate", "bener sih"], "contains"),
+    ("valid", ["valid sih", "iya valid", "bener"], "contains"),
+    ("skip", ["skip dulu", "yaudah", "next"], "contains"),
+    ("next", ["gas next", "lanjut", "oke"], "contains"),
+    ("spill", ["spill kak", "mana spill", "kirim"], "contains"),
+    ("receh", ["wkwk", "ngakak", "receh amat"], "contains"),
+
+    # ===== PENUTUP =====
+    ("makasih", ["siap kak", "sama-sama", "aman"], "contains"),
+    ("terimakasih", ["sama-sama", "siap kak", "aman"], "contains"),
+    ("thanks", ["siap", "aman", "sama-sama"], "contains"),
+    ("thx", ["siap", "aman"], "contains"),
+    ("bye", ["gas dulu", "hati-hati", "aman"], "contains"),
+    ("dadah", ["hati-hati", "aman kak", "gas"], "contains"),
+    ("cabut", ["gas kak", "aman", "bye"], "contains"),
 ]
 
 COOLDOWN_SECONDS = 6
@@ -53,6 +234,11 @@ def dlog(msg: str):
 
 def normalize(text: str) -> str:
     return (text or "").strip().lower()
+
+def pick_response(resp: Union[str, List[str]]) -> str:
+    if isinstance(resp, (list, tuple)):
+        return random.choice(resp) if resp else ""
+    return str(resp or "")
 
 def is_group(m) -> bool:
     return bool(m.chat) and m.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
@@ -101,10 +287,6 @@ db = mongo[MONGO_DB]
 col = db["chatrep_settings"]
 
 async def ensure_db_loaded():
-    """
-    Lazy load: dipanggil saat ada command/handler pertama kali.
-    Ini menghindari 'model async wait' yang bikin handler gak jalan.
-    """
     global DB_LOADED
     if DB_LOADED:
         return
@@ -135,7 +317,7 @@ async def is_enabled(chat_id: int) -> bool:
     return int(chat_id) in ACTIVE_CHAT_IDS
 
 # =========================
-# COMMANDS (OUTGOING) — stabil
+# COMMANDS (OUTGOING)
 # =========================
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]ping(\s|$)"))
 async def cmd_ping(_, m):
@@ -159,7 +341,7 @@ async def cmd_on(_, m):
 async def cmd_off(_, m):
     await set_enabled(m.chat.id, False)
     dlog(f"[CMD] OFF chat={m.chat.id} title={m.chat.title}")
-    await m.reply_text("ChatRep OFF .")
+    await m.reply_text("ChatRep OFF.")
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
 async def cmd_status(_, m):
@@ -170,7 +352,13 @@ async def cmd_status(_, m):
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]menu(\s|$)"))
 async def cmd_menu(_, m):
     status = "ON" if await is_enabled(m.chat.id) else "OFF"
-    rules = "\n".join([f"• [{r[2]}] {r[0]} -> {r[1]}" for r in CHATREP_RULES]) or "- (kosong)"
+    # biar ga kepanjangan, tampilkan 60 rules pertama
+    show = CHATREP_RULES[:60]
+    rules = "\n".join(
+        [f"• [{r[2]}] {r[0]} -> {(' | '.join(r[1]) if isinstance(r[1], (list, tuple)) else r[1])}" for r in show]
+    ) or "- (kosong)"
+    if len(CHATREP_RULES) > 60:
+        rules += f"\n\n... dan {len(CHATREP_RULES) - 60} rules lainnya"
     await m.reply_text(
         "CHATREP USERBOT (MongoDB)\n\n"
         f"Status grup ini : {status}\n"
@@ -221,8 +409,12 @@ async def chatrep_handler(client: Client, m):
             await asyncio.sleep(random.uniform(d0, d1))
 
         reply_to = m.id if REPLY_TO_TRIGGER_MESSAGE else None
+        out = pick_response(response)
+        if not out.strip():
+            return
+
         dlog(f"[MATCH] chat={m.chat.id} trig={trig_key} -> send")
-        await safe_send(client, m.chat.id, response, reply_to=reply_to)
+        await safe_send(client, m.chat.id, out, reply_to=reply_to)
         return
 
 # =========================
