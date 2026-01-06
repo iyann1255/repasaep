@@ -18,6 +18,16 @@ DEBUG = True
 # Trigger rules: (trigger, response, mode) mode: contains | exact
 CHATREP_RULES = [
     ("ubot", "bot gacor di sini @asepvoid", "contains"),
+    ("live", "dimana kak", "contains"),
+    ("dbyohh", "otwe kak", "contains"),
+    ("tmo", "dimana kak", "contains"),
+    ("call", "ayukk kak", "contains"),
+    ("anu", "anu apa nya kak", "contains"),
+    ("becek", "waduh becek", "contains"),
+    ("koll", "ayukk koll kak", "contains"),
+    ("vc", "yukk kak", "contains"),
+    ("pap", "kirim kak ke cpc", "contains"),
+    ("bot", "bukan bot, apalah", "contains"),
 ]
 
 COOLDOWN_SECONDS = 6
