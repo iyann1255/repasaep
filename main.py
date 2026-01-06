@@ -1,49 +1,56 @@
 import asyncio
-import time
 import random
-from typing import Dict, Tuple
+import time
+from typing import Dict, Tuple, Set
 
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType
 from pyrogram.errors import FloodWait, RPCError
 
-from config import API_ID, API_HASH, SESSION
+from config import API_ID, API_HASH
 
 # ============================================================
-# CHATREP RULES (HARDCODE)
+# SETTINGS
 # ============================================================
+DEBUG = True  # True biar kelihatan log di console
+
 # mode: "contains" | "exact"
 CHATREP_RULES = [
     ("ubot", "bot gacor di sini @asepvoid", "contains"),
+    # contoh:
+    # ("halo", "yo", "exact"),
+    # ("ubot", "{mention} bot gacor di sini @asepvoid", "contains"),
 ]
 
 DEFAULT_MATCH_MODE = "contains"
 
-# ============================================================
-# ON/OFF PER GRUP (BUKAN GLOBAL)
-# ============================================================
-ACTIVE_CHAT_IDS = set()  # grup yang sudah di-ON-in
+# ChatRep hanya aktif di grup yang kamu ON kan
+ACTIVE_CHAT_IDS: Set[int] = set()
 
 # Anti spam per (chat_id, trigger)
 COOLDOWN_SECONDS = 8
 LAST_SENT: Dict[Tuple[int, str], float] = {}
 
-# Optional: delay biar keliatan manusia
-HUMAN_DELAY_RANGE = (0.4, 1.2)  # set (0,0) untuk off delay
+# Delay biar keliatan manusia (set (0,0) untuk off)
+HUMAN_DELAY_RANGE = (0.4, 1.2)
 
 # Reply ke pesan pemicu
 REPLY_TO_TRIGGER_MESSAGE = True
 
-# Debug log ke console
-DEBUG = True
-
+# ============================================================
+# CLIENT (PAKAI SESSION FILE, BUKAN SESSION_STRING)
+# Ini penting biar gak nyangkut ke session lama
+# File session akan jadi: chatrep_userbot.session
+# ============================================================
 app = Client(
-    name="chatrep_userbot",
+    "chatrep_userbot",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION if SESSION else None,
 )
 
+# ============================================================
+# HELPERS
+# ============================================================
 def normalize(text: str) -> str:
     return (text or "").strip().lower()
 
@@ -61,6 +68,14 @@ def match(mode: str, trigger: str, incoming: str) -> bool:
     return t in inc  # contains
 
 def apply_placeholders(template: str, message) -> str:
+    """
+    Placeholder:
+    {first}    -> first name
+    {username} -> @username
+    {mention}  -> mention user
+    {chat}     -> judul grup
+    {text}     -> teks masuk
+    """
     u = message.from_user
     first = (u.first_name if u else "") or ""
     username = (u.username if u else "") or ""
@@ -87,63 +102,65 @@ async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | Non
             print(f"[SEND ERROR] chat={chat_id} err={e}")
         return
 
-# ============================================================
-# COMMANDS (HANYA KAMU) - pakai regex biar gak rewel
-# ============================================================
-
-@app.on_message(filters.me & filters.group & filters.regex(r"^[./]on(\s|$)"))
-async def rep_on(client: Client, message):
-    chat_id = message.chat.id
-    ACTIVE_CHAT_IDS.add(chat_id)
+def dlog(msg: str):
     if DEBUG:
-        print(f"[ON] chat_id={chat_id} title={message.chat.title}")
+        print(msg)
+
+# ============================================================
+# COMMANDS (HANYA KAMU) - regex biar robust
+# ============================================================
+@app.on_message(filters.me & filters.group & filters.regex(r"^[./]on(\s|$)"))
+async def cmd_on(client: Client, message):
+    cid = message.chat.id
+    ACTIVE_CHAT_IDS.add(cid)
+    dlog(f"[ON] chat_id={cid} title={message.chat.title}")
     await message.reply_text("ChatRep ON di grup ini.")
 
 @app.on_message(filters.me & filters.group & filters.regex(r"^[./]off(\s|$)"))
-async def rep_off(client: Client, message):
-    chat_id = message.chat.id
-    ACTIVE_CHAT_IDS.discard(chat_id)
-    if DEBUG:
-        print(f"[OFF] chat_id={chat_id} title={message.chat.title}")
+async def cmd_off(client: Client, message):
+    cid = message.chat.id
+    ACTIVE_CHAT_IDS.discard(cid)
+    dlog(f"[OFF] chat_id={cid} title={message.chat.title}")
     await message.reply_text("ChatRep OFF di grup ini.")
 
 @app.on_message(filters.me & filters.group & filters.regex(r"^[./]status(\s|$)"))
-async def rep_status(client: Client, message):
-    chat_id = message.chat.id
-    status = "ON" if chat_id in ACTIVE_CHAT_IDS else "OFF"
+async def cmd_status(client: Client, message):
+    cid = message.chat.id
+    status = "ON" if cid in ACTIVE_CHAT_IDS else "OFF"
     await message.reply_text(f"Status ChatRep grup ini: {status}")
 
 @app.on_message(filters.me & filters.group & filters.regex(r"^[./]id(\s|$)"))
-async def rep_id(client: Client, message):
+async def cmd_id(client: Client, message):
     await message.reply_text(f"chat_id: `{message.chat.id}`", quote=True)
 
 @app.on_message(filters.me & filters.group & filters.regex(r"^[./]menu(\s|$)"))
-async def rep_menu(client: Client, message):
-    chat_id = message.chat.id
-    status = "ON" if chat_id in ACTIVE_CHAT_IDS else "OFF"
+async def cmd_menu(client: Client, message):
+    cid = message.chat.id
+    status = "ON" if cid in ACTIVE_CHAT_IDS else "OFF"
 
-    rules = []
+    lines = []
     for trig, resp, mode in CHATREP_RULES:
-        rules.append(f"• [{mode}] {trig} -> {resp}")
+        lines.append(f"• [{mode}] {trig} -> {resp}")
 
     txt = (
         "CHATREP USERBOT\n\n"
         f"Status grup ini : {status}\n"
-        f"Cooldown        : {COOLDOWN_SECONDS}s\n\n"
+        f"Cooldown        : {COOLDOWN_SECONDS}s\n"
+        f"Reply mode      : {'reply' if REPLY_TO_TRIGGER_MESSAGE else 'send'}\n\n"
         "Commands:\n"
         "• .on / /on\n"
         "• .off / /off\n"
         "• .status\n"
         "• .id\n"
         "• .menu\n\n"
-        "Rules:\n" + ("\n".join(rules) if rules else "- (kosong)")
+        "Rules:\n"
+        + ("\n".join(lines) if lines else "- (kosong)")
     )
     await message.reply_text(txt)
 
 # ============================================================
-# AUTO REPLY (HANYA DI GRUP YANG DI-ON-in)
+# AUTO REPLY (HANYA DI GRUP YANG SUDAH DI-ON)
 # ============================================================
-
 @app.on_message(filters.group & ~filters.me & filters.text)
 async def chatrep_handler(client: Client, message):
     if not is_group(message):
@@ -151,19 +168,18 @@ async def chatrep_handler(client: Client, message):
 
     chat_id = message.chat.id
 
+    # kunci utama: grup harus ON
     if chat_id not in ACTIVE_CHAT_IDS:
-        if DEBUG:
-            print(f"[SKIP] chat {chat_id} belum ON")
+        dlog(f"[SKIP] chat={chat_id} belum ON")
         return
 
     incoming = message.text or ""
     if not incoming.strip():
         return
 
-    if DEBUG:
-        u = message.from_user
-        who = f"{u.first_name} (@{u.username})" if u else "Unknown"
-        print(f"[IN] chat={chat_id} from={who}: {incoming[:80]}")
+    u = message.from_user
+    who = f"{u.first_name} (@{u.username})" if u else "Unknown"
+    dlog(f"[IN] chat={chat_id} from={who}: {incoming[:100]}")
 
     for trigger, response, mode in CHATREP_RULES:
         if not match(mode, trigger, incoming):
@@ -175,8 +191,7 @@ async def chatrep_handler(client: Client, message):
         now = time.time()
         last = LAST_SENT.get((chat_id, trig_key), 0.0)
         if now - last < COOLDOWN_SECONDS:
-            if DEBUG:
-                print(f"[COOLDOWN] chat={chat_id} trigger={trig_key}")
+            dlog(f"[COOLDOWN] chat={chat_id} trig={trig_key}")
             return
         LAST_SENT[(chat_id, trig_key)] = now
 
@@ -188,22 +203,32 @@ async def chatrep_handler(client: Client, message):
         out = apply_placeholders(response, message)
         reply_to = message.id if REPLY_TO_TRIGGER_MESSAGE else None
 
-        if DEBUG:
-            print(f"[MATCH] chat={chat_id} trigger={trig_key} -> send")
-
+        dlog(f"[MATCH] chat={chat_id} trig={trig_key} -> send")
         await safe_send(client, chat_id, out, reply_to=reply_to)
         return
 
+# ============================================================
+# MAIN (shutdown rapi)
+# ============================================================
 async def main():
     await app.start()
     me = await app.get_me()
-    print(f"ChatRep userbot running as: {me.first_name} (@{me.username})")
+
+    # indikator account deleted
+    is_deleted = getattr(me, "is_deleted", None)
+    print(f"ChatRep userbot running as: {me.first_name} (@{me.username}) | is_deleted={is_deleted}")
     print("Note: Semua grup OFF dulu. Ketik .on di grup yang mau diaktifin.")
 
+    stop_event = asyncio.Event()
     try:
-        await asyncio.Event().wait()
+        await stop_event.wait()
+    except asyncio.CancelledError:
+        pass
     finally:
-        await app.stop()
+        try:
+            await app.stop()
+        except Exception as e:
+            print(f"Stop warning: {e}")
 
 if __name__ == "__main__":
     try:
