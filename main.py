@@ -143,13 +143,13 @@ async def cmd_id(_, m):
 async def cmd_on(_, m):
     await set_enabled(m.chat.id, True)
     dlog(f"[CMD] ON chat={m.chat.id} title={m.chat.title}")
-    await m.reply_text("ChatRep ON (tersimpan di MongoDB).")
+    await m.reply_text("ChatRep ON.")
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]off(\s|$)"))
 async def cmd_off(_, m):
     await set_enabled(m.chat.id, False)
     dlog(f"[CMD] OFF chat={m.chat.id} title={m.chat.title}")
-    await m.reply_text("ChatRep OFF (tersimpan di MongoDB).")
+    await m.reply_text("ChatRep OFF .")
 
 @app.on_message(filters.group & filters.outgoing & filters.regex(r"^[./]status(\s|$)"))
 async def cmd_status(_, m):
