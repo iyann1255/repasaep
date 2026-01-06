@@ -21,7 +21,7 @@ CHATREP_RULES = [
 ]
 
 COOLDOWN_SECONDS = 6
-HUMAN_DELAY_RANGE = (0.2, 0.8)  # (0,0) untuk off
+HUMAN_DELAY_RANGE = (0.2, 0.8)  # set (0,0) untuk off
 REPLY_TO_TRIGGER_MESSAGE = True
 
 # ON/OFF per grup (bukan global)
@@ -66,6 +66,29 @@ async def safe_send(client: Client, chat_id: int, text: str, reply_to: int | Non
     except RPCError as e:
         dlog(f"[SEND ERROR] chat={chat_id} err={e}")
         return
+
+
+# ============================================================
+# PATCH (OPSI 1): Skip update yang error "Peer id invalid"
+# ============================================================
+from pyrogram.client import Client as PyroClient  # noqa: E402
+
+_original_handle_updates = PyroClient.handle_updates
+
+
+async def _safe_handle_updates(self, updates):
+    try:
+        return await _original_handle_updates(self, updates)
+    except ValueError as e:
+        # Contoh: ValueError('Peer id invalid: -1002795137507')
+        if "Peer id invalid" in str(e):
+            if DEBUG:
+                print(f"[WARN] skipped update: {e}")
+            return
+        raise
+
+
+PyroClient.handle_updates = _safe_handle_updates
 
 
 # =========================
@@ -165,6 +188,7 @@ async def chatrep_handler(client: Client, m):
 
 
 if __name__ == "__main__":
-    print("Running... (login sekali kalau diminta)")
-    print("Test di grup: .ping -> harus dibalas pong")
-    app.run()  # ✅ INI YANG BENAR: TANPA ARGUMEN
+    print("Running ChatRep userbot...")
+    print("Test: di grup ketik .ping -> harus dibalas pong")
+    print("Aktifkan grup: .on")
+    app.run()
